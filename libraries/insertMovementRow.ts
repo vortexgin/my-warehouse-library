@@ -48,7 +48,14 @@ async function getLockedStock(
 
   try {
     return await StockModel.create(
-      { uuid: randomUUID(), ...scope, qty_on_hand: 0, qty_reserved: 0, status: "active", deleted_at: null },
+      {
+        uuid: randomUUID(),
+        ...scope,
+        qty_on_hand: 0,
+        qty_reserved: 0,
+        status: "active",
+        deleted_at: null,
+      },
       { transaction },
     );
   } catch (error) {
@@ -77,7 +84,7 @@ async function resolveBomComponents(
   variantId: string | null,
   parentQty: number,
   organizationId: string | null,
-  transaction: any,
+  transaction?: any,
 ): Promise<Array<{ product_id: string; variant_id: string | null; qty: number }>> {
   await ProductBomModelFactory();
   const rows = await ProductBomModel.findAll({
@@ -87,7 +94,7 @@ async function resolveBomComponents(
       status: "active",
       deleted_at: null,
     },
-    transaction,
+    ...(transaction ? { transaction } : {}),
   });
 
   const specific = rows.filter((row) => variantId !== null && row.variant_id === variantId);
@@ -147,40 +154,36 @@ export async function insertMovementRow(
   }
 
   const sequelize = await getSequelizeInstance();
+
+  // Resolve full leg set before the transaction: transfer pair + BoM
+  // explosion for `out`. Component legs mirror the parent warehouse with
+  // audit ref to the parent row.
+  const parentUuid = randomUUID();
+  const resolved: ResolvedLeg[] = legs.map((leg) => ({
+    ...leg,
+    product_id: input.product_id,
+    variant_id: variantId,
+  }));
+
+  const [parentLeg] = resolved;
+  if (input.type === "out") {
+    const components = await resolveBomComponents(input.product_id, variantId, input.qty, organizationId);
+    for (const component of components) {
+      resolved.push({
+        warehouse_id: parentLeg.warehouse_id,
+        product_id: component.product_id,
+        variant_id: component.variant_id,
+        type: "out",
+        qty: component.qty,
+        ref_type: "bom",
+        ref_id: parentUuid,
+        notes,
+      });
+    }
+  }
+
   return sequelize.transaction(async (transaction: any) => {
     await MovementModelFactory();
-
-    // Resolve full leg set first: transfer pair + BoM explosion for `out`.
-    // Component legs mirror the parent warehouse with audit ref to the parent row.
-    const parentUuid = randomUUID();
-    const resolved: ResolvedLeg[] = legs.map((leg) => ({
-      ...leg,
-      product_id: input.product_id,
-      variant_id: variantId,
-    }));
-
-    const [parentLeg] = resolved;
-    if (input.type === "out") {
-      const components = await resolveBomComponents(
-        input.product_id,
-        variantId,
-        input.qty,
-        organizationId,
-        transaction,
-      );
-      for (const component of components) {
-        resolved.push({
-          warehouse_id: parentLeg.warehouse_id,
-          product_id: component.product_id,
-          variant_id: component.variant_id,
-          type: "out",
-          qty: component.qty,
-          ref_type: "bom",
-          ref_id: parentUuid,
-          notes,
-        });
-      }
-    }
 
     // Lock every touched stock (parent first, then components), validate all
     // balances, then write all — shortage anywhere aborts everything.

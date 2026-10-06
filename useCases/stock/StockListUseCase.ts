@@ -1,6 +1,6 @@
 import Joi from "joi";
 import { Op, Sequelize, type WhereOptions } from "sequelize";
-import StockModelFactory, { type Stock } from "@/app/warehouse/models/StockModel";
+import StockModelFactory, { StockModel, type Stock } from "@/app/warehouse/models/StockModel";
 import ProductModelFactory, { ProductModel } from "@/app/product/models/ProductModel";
 import { UserModel } from "@/app/base/models/UserModel";
 import { type ActivityActor } from "@/app/base/models/ActivityLogModel";
@@ -39,6 +39,7 @@ export type ListStocksQuery = {
 const SORTABLE_COLUMNS: Record<string, string> = {
   uuid: "uuid",
   qty_on_hand: "qty_on_hand",
+  qty_reserved: "qty_reserved",
   created_at: "created_at",
   updated_at: "updated_at",
 };
@@ -61,6 +62,55 @@ const listStocksSchema = Joi.object({
   offset: Joi.number().integer().min(0).default(0),
   limit: Joi.number().integer().min(1).max(100).default(20),
 });
+
+/**
+ * Relation labels come from eager-loaded associations, not stored snapshots.
+ * Related modules are optional deployments: association setup is
+ * best-effort (dynamic imports), and a missing module degrades to a plain
+ * row read with null relations instead of failing the listing.
+ */
+async function buildRelationIncludes(): Promise<any[]> {
+  try {
+    const [warehouseMod, productMod, variantMod] = await Promise.all([
+      import("@/app/warehouse/models/WarehouseModel"),
+      import("@/app/product/models/ProductModel"),
+      import("@/app/product/models/ProductVariantModel"),
+    ]);
+    await Promise.all([warehouseMod.default(), productMod.default(), variantMod.default()]);
+    const associations = (StockModel as any).associations ?? {};
+    if (!associations.warehouse) {
+      StockModel.belongsTo(warehouseMod.WarehouseModel, {
+        foreignKey: "warehouse_id",
+        targetKey: "uuid",
+        as: "warehouse",
+        constraints: false,
+      });
+    }
+    if (!associations.product) {
+      StockModel.belongsTo(productMod.ProductModel, {
+        foreignKey: "product_id",
+        targetKey: "uuid",
+        as: "product",
+        constraints: false,
+      });
+    }
+    if (!associations.variant) {
+      StockModel.belongsTo(variantMod.ProductVariantModel, {
+        foreignKey: "variant_id",
+        targetKey: "uuid",
+        as: "variant",
+        constraints: false,
+      });
+    }
+    return [
+      { model: warehouseMod.WarehouseModel, as: "warehouse", required: false },
+      { model: productMod.ProductModel, as: "product", required: false },
+      { model: variantMod.ProductVariantModel, as: "variant", required: false },
+    ];
+  } catch {
+    return [];
+  }
+}
 
 export class StockListUseCase extends BaseUseCase<ListStocksInput | void, Stock[], ListStocksQuery> {
   protected async preExec(input?: ListStocksInput | void, actor?: ActivityActor): Promise<ListStocksQuery> {
@@ -155,6 +205,7 @@ export class StockListUseCase extends BaseUseCase<ListStocksInput | void, Stock[
 
     const rows = await StockModel.findAll({
       where: { [Op.and]: conditions },
+      include: await buildRelationIncludes(),
       order: [[context.sortProperty, context.sortDirection]],
       offset: context.offset,
       limit: context.limit,

@@ -8,6 +8,24 @@ export type MovementType =
   | "transfer_in"
   | "transfer_out";
 
+export type MovementWarehouseSnapshot = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+export type MovementProductSnapshot = {
+  id: string;
+  name: string;
+  sku: string;
+};
+
+export type MovementVariantSnapshot = {
+  id: string;
+  name: string;
+  sku: string;
+};
+
 /**
  * Append-only ledger. Rows are never updated/deleted —
  * reversal is a new movement. `reserve`/`release` are reserved
@@ -25,6 +43,10 @@ export type Movement = {
   ref_type: string | null;
   ref_id: string | null;
   notes: string | null;
+  /** Denormalized relation snapshots (invoice pattern): read path never joins. Null on legacy rows. */
+  warehouse: MovementWarehouseSnapshot | null;
+  product: MovementProductSnapshot | null;
+  variant: MovementVariantSnapshot | null;
   created_at: string;
 };
 
@@ -40,7 +62,7 @@ export type CreateMovementInput = {
   notes?: string | null;
 };
 
-export type MovementModelAttributes = Partial<Omit<Movement, "created_at">> & {
+export type MovementModelAttributes = Partial<Omit<Movement, "created_at" | "warehouse" | "product" | "variant">> & {
   created_at: Date;
 };
 
@@ -61,6 +83,9 @@ export class MovementModel extends Model<MovementModelAttributes, MovementModelC
   declare created_at: Date;
 
   static toApi(movement: any): Movement {
+    const warehouse = movement.warehouse ?? null;
+    const product = movement.product ?? null;
+    const variant = movement.variant ?? null;
     return {
       uuid: movement.uuid,
       organization_id: movement.organization_id ?? null,
@@ -73,6 +98,15 @@ export class MovementModel extends Model<MovementModelAttributes, MovementModelC
       ref_type: movement.ref_type ?? null,
       ref_id: movement.ref_id ?? null,
       notes: movement.notes ?? null,
+      warehouse: warehouse
+        ? { id: warehouse.uuid ?? warehouse.id ?? "", code: warehouse.code ?? "", name: warehouse.name ?? "" }
+        : null,
+      product: product
+        ? { id: product.uuid ?? product.id ?? "", name: product.name ?? "", sku: product.sku ?? "" }
+        : null,
+      variant: variant
+        ? { id: variant.uuid ?? variant.id ?? "", name: variant.name ?? "", sku: variant.sku ?? "" }
+        : null,
       created_at: movement.created_at ? new Date(movement.created_at).toISOString() : new Date().toISOString(),
     };
   }

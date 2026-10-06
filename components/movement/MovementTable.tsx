@@ -73,6 +73,8 @@ export function MovementTable({
         fetchRows={fetchMovementRows}
         basePath="/warehouse/views/movements"
         extraParams={applied}
+        defaultSort={{ key: "created_at", dir: "desc" }}
+        hideManage
         labelField="type"
         renderCell={renderMovementCell}
       />

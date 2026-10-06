@@ -3,7 +3,7 @@ import { UserModel } from "@/app/base/models/UserModel";
 import type { ActivityActor } from "@/app/base/models/ActivityLogModel";
 import type { Movement } from "@/app/warehouse/models/MovementModel";
 import { BaseUseCase } from "@/useCases/BaseUseCase";
-import { insertMovementRow } from "@/app/warehouse/useCases/movement/insertMovementRow";
+import { insertMovementRow } from "@/app/warehouse/libraries/insertMovementRow";
 import { recordActivityLog } from "@/app/base/models/ActivityLogModel";
 import BadParameterException from "@/exceptions/BadParameterException";
 import UnprocessableEntityException from "@/exceptions/UnprocessableEntityException";

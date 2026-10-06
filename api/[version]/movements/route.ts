@@ -5,7 +5,7 @@ import { withAuthorization } from "@/libraries/AuthorizedRoute";
 import { fail, getErrorStatus, ok, queryParam } from "@/libraries/Http";
 import { MovementCreateUseCase } from "@/app/warehouse/useCases/movement/MovementCreateUseCase";
 import { MovementListUseCase } from "@/app/warehouse/useCases/movement/MovementListUseCase";
-import type { MovementWriteInput } from "@/app/warehouse/useCases/movement/insertMovementRow";
+import type { MovementWriteInput } from "@/app/warehouse/libraries/insertMovementRow";
 
 export const runtime = "nodejs";
 

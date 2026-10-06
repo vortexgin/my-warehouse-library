@@ -2,7 +2,7 @@ import Joi from "joi";
 import WarehouseModelFactory, { WarehouseModel } from "@/app/warehouse/models/WarehouseModel";
 import ProductModelFactory, { ProductModel } from "@/app/product/models/ProductModel";
 import ProductVariantModelFactory, { ProductVariantModel } from "@/app/product/models/ProductVariantModel";
-import { insertMovementRow, type MovementWriteInput } from "@/app/warehouse/useCases/movement/insertMovementRow";
+import { insertMovementRow, type MovementWriteInput } from "@/app/warehouse/libraries/insertMovementRow";
 import { UserModel } from "@/app/base/models/UserModel";
 import { recordActivityLog, type ActivityActor } from "@/app/base/models/ActivityLogModel";
 import { BaseUseCase } from "@/useCases/BaseUseCase";

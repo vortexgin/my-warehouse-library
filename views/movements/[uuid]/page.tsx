@@ -42,6 +42,18 @@ export default async function MovementDetailPage({
     notFound();
   }
 
+  const warehouseLabel = movement.warehouse
+    ? `${movement.warehouse.code} · ${movement.warehouse.name}`
+    : movement.warehouse_id;
+  const productLabel = movement.product
+    ? `${movement.product.name} · ${movement.product.sku}`
+    : movement.product_id;
+  const variantLabel = movement.variant_id
+    ? (movement.variant
+      ? `${movement.variant.name} · ${movement.variant.sku}`
+      : movement.variant_id)
+    : "—";
+
   return (
     <AuthComponent
       user={session.user}
@@ -67,9 +79,9 @@ export default async function MovementDetailPage({
               <Row label="Type" value={movement.type} />
               <Row label="Qty" value={String(movement.qty)} />
               <Row label="Balance after" value={String(movement.balance_after)} />
-              <Row label="Warehouse" value={movement.warehouse_id} />
-              <Row label="Product" value={movement.product_id} />
-              <Row label="Variant" value={movement.variant_id ?? "—"} />
+              <Row label="Warehouse" value={warehouseLabel} />
+              <Row label="Product" value={productLabel} />
+              <Row label="Variant" value={variantLabel} />
               <Row label="Reference" value={[movement.ref_type, movement.ref_id].filter(Boolean).join(" / ") || "—"} />
               <Row label="Notes" value={movement.notes ?? "—"} />
               <Row label="Created" value={movement.created_at} />

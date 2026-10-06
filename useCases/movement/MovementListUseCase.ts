@@ -42,6 +42,9 @@ export type ListMovementsQuery = {
 
 const SORTABLE_COLUMNS: Record<string, string> = {
   uuid: "uuid",
+  type: "type",
+  qty: "qty",
+  balance_after: "balance_after",
   created_at: "created_at",
 };
 

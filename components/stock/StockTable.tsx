@@ -1,22 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Table, type TableColumn, type TableRow } from "@/components/Table";
 import type { Stock } from "@/app/warehouse/models/StockModel";
-import type { Warehouse } from "@/app/warehouse/models/WarehouseModel";
-import type { Product } from "@/app/product/models/ProductModel";
 import type { SessionInfo } from "@/libraries/Auth";
 import { getEncrypted } from "@/libraries/EncryptedFetch";
 
 const API_PATH = "/warehouse/api/v1/stocks";
 
 const COLUMNS: TableColumn[] = [
-  { key: "warehouse_id", label: "Warehouse", field: "warehouse_id" },
-  { key: "product_id", label: "Product", field: "product_id" },
+  { key: "warehouse_id", label: "Warehouse", field: "warehouse_id", sortable: false },
+  { key: "product_id", label: "Product", field: "product_id", sortable: false },
   { key: "qty_on_hand", label: "On hand", field: "qty_on_hand" },
   { key: "qty_reserved", label: "Reserved", field: "qty_reserved" },
-  { key: "available", label: "Available", field: "available" },
+  { key: "available", label: "Available", field: "available", sortable: false },
   { key: "updated_at", label: "Updated", field: "updated_at" },
 ];
 
@@ -44,40 +42,6 @@ export function StockTable({
   const [draftQ, setDraftQ] = useState("");
   const [lowOnly, setLowOnly] = useState(false);
   const [applied, setApplied] = useState<Record<string, string>>({});
-  const [labels, setLabels] = useState<{ warehouses: Map<string, string>; products: Map<string, string> }>({
-    warehouses: new Map(),
-    products: new Map(),
-  });
-
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      // Labels only: a labels outage must not blank the stock rows.
-      const [warehouseResult, productResult] = await Promise.allSettled([
-        getEncrypted<Warehouse[]>(`/warehouse/api/v1/warehouses?limit=100&sortProperty=code&sortDirection=asc`),
-        getEncrypted<Product[]>(`/product/api/v1/products?limit=100&sortProperty=name&sortDirection=asc`),
-      ]);
-      if (!active) {
-        return;
-      }
-      const warehouses = new Map<string, string>();
-      const products = new Map<string, string>();
-      if (warehouseResult.status === "fulfilled" && warehouseResult.value.success) {
-        for (const row of warehouseResult.value.data ?? []) {
-          warehouses.set(row.uuid, `${row.code} · ${row.name}`);
-        }
-      }
-      if (productResult.status === "fulfilled" && productResult.value.success) {
-        for (const row of productResult.value.data ?? []) {
-          products.set(row.uuid, `${row.name} · ${row.sku}`);
-        }
-      }
-      setLabels({ warehouses, products });
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -99,7 +63,12 @@ export function StockTable({
 
   function renderStockCell(column: TableColumn, row: TableRow, value: unknown) {
     if (column.key === "warehouse_id") {
-      const label = labels.warehouses.get(String(value)) ?? `${String(value ?? "").slice(0, 8)}…`;
+      // Labels come from the eager-loaded embed; a null embed (missing
+      // module/row) falls back to the truncated UUID.
+      const embed = (row as unknown as Stock).warehouse;
+      const label = embed
+        ? `${embed.code} · ${embed.name}`
+        : `${String(value ?? "").slice(0, 8)}…`;
       return (
         <Link href={`/warehouse/views/movements?warehouse_id=${value}`} className="font-medium text-blue-600 hover:text-blue-500">
           {label}
@@ -107,7 +76,10 @@ export function StockTable({
       );
     }
     if (column.key === "product_id") {
-      const label = labels.products.get(String(value)) ?? `${String(value ?? "").slice(0, 8)}…`;
+      const embed = (row as unknown as Stock).product;
+      const label = embed
+        ? `${embed.name} · ${embed.sku}`
+        : `${String(value ?? "").slice(0, 8)}…`;
       return <span className="font-medium text-slate-900">{label}</span>;
     }
     if (column.key === "available") {
@@ -174,6 +146,8 @@ export function StockTable({
         fetchRows={fetchStockRows}
         basePath="/warehouse/views/stocks"
         extraParams={applied}
+        defaultSort={{ key: "updated_at", dir: "desc" }}
+        hideManage
         labelField="warehouse_id"
         renderCell={renderStockCell}
       />
