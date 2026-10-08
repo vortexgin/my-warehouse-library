@@ -32,16 +32,23 @@ type Leg = {
   notes: string | null;
 };
 
-async function getLockedStock(
+async function findLockedStock(
   scope: { organization_id: string | null; warehouse_id: string; product_id: string; variant_id: string | null },
   transaction: any,
-): Promise<StockModel> {
+): Promise<StockModel | null> {
   await StockModelFactory();
-  const found = await StockModel.findOne({
+  return StockModel.findOne({
     where: { ...scope, deleted_at: null },
     transaction,
     lock: transaction.LOCK.UPDATE,
   });
+}
+
+async function getLockedStock(
+  scope: { organization_id: string | null; warehouse_id: string; product_id: string; variant_id: string | null },
+  transaction: any,
+): Promise<StockModel> {
+  const found = await findLockedStock(scope, transaction);
   if (found) {
     return found;
   }
@@ -87,15 +94,23 @@ async function resolveBomComponents(
   transaction?: any,
 ): Promise<Array<{ product_id: string; variant_id: string | null; qty: number }>> {
   await ProductBomModelFactory();
-  const rows = await ProductBomModel.findAll({
-    where: {
-      product_id: productId,
-      organization_id: organizationId,
-      status: "active",
-      deleted_at: null,
-    },
+  const scoped = {
+    product_id: productId,
+    status: "active",
+    deleted_at: null,
+  };
+  let rows = await ProductBomModel.findAll({
+    where: { ...scoped, organization_id: organizationId },
     ...(transaction ? { transaction } : {}),
   });
+  // Globally-seeded BoMs apply to org-linked writes, mirroring the stock
+  // fallback below.
+  if (rows.length === 0 && organizationId !== null) {
+    rows = await ProductBomModel.findAll({
+      where: { ...scoped, organization_id: null },
+      ...(transaction ? { transaction } : {}),
+    });
+  }
 
   const specific = rows.filter((row) => variantId !== null && row.variant_id === variantId);
   const applicable = specific.length > 0 ? specific : rows.filter((row) => row.variant_id === null);
@@ -123,6 +138,7 @@ type ResolvedLeg = Leg & {
 export async function insertMovementRow(
   input: MovementWriteInput,
   organizationId: string | null,
+  opts?: { transaction?: any },
 ): Promise<Movement[]> {
   const variantId = input.variant_id ?? null;
   const notes = input.notes?.trim() || null;
@@ -153,6 +169,46 @@ export async function insertMovementRow(
     ];
   }
 
+  const isOutbound = (type: Leg["type"]): boolean => type === "out" || type === "transfer_out";
+
+  /**
+   * Org-linked writes may consume globally-seeded (NULL org) stock: the
+   * sales-side guards accept "same-org or global" warehouses/products, so
+   * the writer must too. Otherwise an org that sees the global warehouse
+   * can never system-ship from it — the writer would create an empty org
+   * row and 422 on it while sellable global stock sits untouched.
+   * Org-owned rows win when they cover the leg; global is the fallback.
+   */
+  const lockStockForLeg = async (
+    leg: ResolvedLeg,
+    organizationId: string | null,
+    transaction: any,
+  ): Promise<StockModel> => {
+    const key = {
+      warehouse_id: leg.warehouse_id,
+      product_id: leg.product_id,
+      variant_id: leg.variant_id,
+    };
+    if (organizationId === null) {
+      return getLockedStock({ organization_id: null, ...key }, transaction);
+    }
+    const owned = await findLockedStock({ organization_id: organizationId, ...key }, transaction);
+    if (owned && (!isOutbound(leg.type) || leg.qty <= owned.qty_on_hand - owned.qty_reserved)) {
+      return owned;
+    }
+    const shared = await findLockedStock({ organization_id: null, ...key }, transaction);
+    if (shared && isOutbound(leg.type) && leg.qty <= shared.qty_on_hand - shared.qty_reserved) {
+      return shared;
+    }
+    if (owned) {
+      return owned;
+    }
+    if (shared && !isOutbound(leg.type)) {
+      return shared;
+    }
+    return getLockedStock({ organization_id: organizationId, ...key }, transaction);
+  };
+
   const sequelize = await getSequelizeInstance();
 
   // Resolve full leg set before the transaction: transfer pair + BoM
@@ -182,22 +238,14 @@ export async function insertMovementRow(
     }
   }
 
-  return sequelize.transaction(async (transaction: any) => {
+  const run = async (transaction: any): Promise<Movement[]> => {
     await MovementModelFactory();
 
     // Lock every touched stock (parent first, then components), validate all
     // balances, then write all — shortage anywhere aborts everything.
     const locked = [];
     for (const leg of resolved) {
-      const stock = await getLockedStock(
-        {
-          organization_id: organizationId,
-          warehouse_id: leg.warehouse_id,
-          product_id: leg.product_id,
-          variant_id: leg.variant_id,
-        },
-        transaction,
-      );
+      const stock = await lockStockForLeg(leg, organizationId, transaction);
       locked.push({ leg, stock });
     }
 
@@ -248,5 +296,12 @@ export async function insertMovementRow(
     }
 
     return created;
-  });
+  };
+
+  // Join the caller's transaction when provided (multi-item atomic ship);
+  // otherwise run in our own.
+  if (opts?.transaction) {
+    return run(opts.transaction);
+  }
+  return sequelize.transaction(run);
 }
