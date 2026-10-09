@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
-import { Table, type TableColumn, type TableRow } from "@/components/Table";
+import { Table, type TableColumn, type TableQuery, type TableRow } from "@/components/Table";
+import { PdfActions } from "@/components/PdfActions";
 import type { Stock } from "@/app/warehouse/models/StockModel";
 import type { SessionInfo } from "@/libraries/Auth";
 import { getEncrypted } from "@/libraries/EncryptedFetch";
@@ -42,6 +43,12 @@ export function StockTable({
   const [draftQ, setDraftQ] = useState("");
   const [lowOnly, setLowOnly] = useState(false);
   const [applied, setApplied] = useState<Record<string, string>>({});
+  const [activeQuery, setActiveQuery] = useState<TableQuery>({ sort: "updated_at", dir: "desc", offset: 0 });
+
+  const exportFilter = {
+    ...(applied["filter[q]"] ? { q: applied["filter[q]"] } : {}),
+    ...(applied["filter[low_only]"] ? { low_only: true } : {}),
+  };
 
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -137,6 +144,13 @@ export function StockTable({
         </label>
       </form>
 
+      <div className="mt-4">
+        <PdfActions
+          endpoint="/warehouse/api/v1/stocks/pdf"
+          payload={{ filter: exportFilter, sortProperty: activeQuery.sort, sortDirection: activeQuery.dir }}
+        />
+      </div>
+
       <Table
         key={JSON.stringify(applied)}
         session={session}
@@ -150,6 +164,7 @@ export function StockTable({
         hideManage
         labelField="warehouse_id"
         renderCell={renderStockCell}
+        onQueryChange={setActiveQuery}
       />
     </div>
   );
