@@ -1,6 +1,6 @@
 import Joi from "joi";
 import { Op } from "sequelize";
-import MovementModelFactory, { type Movement } from "@/app/warehouse/models/MovementModel";
+import MovementModelFactory, { MovementModel, type Movement } from "@/app/warehouse/models/MovementModel";
 import { UserModel } from "@/app/base/models/UserModel";
 import { type ActivityActor } from "@/app/base/models/ActivityLogModel";
 import { BaseUseCase } from "@/useCases/BaseUseCase";
@@ -67,6 +67,54 @@ const listMovementsSchema = Joi.object({
   offset: Joi.number().integer().min(0).default(0),
   limit: Joi.number().integer().min(1).max(100).default(50),
 });
+
+/**
+ * Resolve display labels in the list query. Ledger history intentionally has
+ * no deleted_at condition on these includes, so old rows retain useful labels
+ * after related master data is soft-deleted.
+ */
+async function buildRelationIncludes(): Promise<any[]> {
+  try {
+    const [warehouseMod, productMod, variantMod] = await Promise.all([
+      import("@/app/warehouse/models/WarehouseModel"),
+      import("@/app/product/models/ProductModel"),
+      import("@/app/product/models/ProductVariantModel"),
+    ]);
+    await Promise.all([warehouseMod.default(), productMod.default(), variantMod.default()]);
+    const associations = (MovementModel as any).associations ?? {};
+    if (!associations.warehouse) {
+      MovementModel.belongsTo(warehouseMod.WarehouseModel, {
+        foreignKey: "warehouse_id",
+        targetKey: "uuid",
+        as: "warehouse",
+        constraints: false,
+      });
+    }
+    if (!associations.product) {
+      MovementModel.belongsTo(productMod.ProductModel, {
+        foreignKey: "product_id",
+        targetKey: "uuid",
+        as: "product",
+        constraints: false,
+      });
+    }
+    if (!associations.variant) {
+      MovementModel.belongsTo(variantMod.ProductVariantModel, {
+        foreignKey: "variant_id",
+        targetKey: "uuid",
+        as: "variant",
+        constraints: false,
+      });
+    }
+    return [
+      { model: warehouseMod.WarehouseModel, as: "warehouse", required: false },
+      { model: productMod.ProductModel, as: "product", required: false },
+      { model: variantMod.ProductVariantModel, as: "variant", required: false },
+    ];
+  } catch {
+    return [];
+  }
+}
 
 export class MovementListUseCase extends BaseUseCase<ListMovementsInput | void, Movement[], ListMovementsQuery> {
   protected async preExec(input?: ListMovementsInput | void, actor?: ActivityActor): Promise<ListMovementsQuery> {
@@ -150,6 +198,7 @@ export class MovementListUseCase extends BaseUseCase<ListMovementsInput | void, 
 
     const rows = await MovementModel.findAll({
       where: { [Op.and]: conditions },
+      include: await buildRelationIncludes(),
       order: [[context.sortProperty, context.sortDirection]],
       offset: context.offset,
       limit: context.limit,

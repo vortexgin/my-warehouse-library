@@ -9,6 +9,8 @@ import { getEncrypted } from "@/libraries/EncryptedFetch";
 const API_PATH = "/warehouse/api/v1/movements";
 
 const COLUMNS: TableColumn[] = [
+  { key: "warehouse_id", label: "Warehouse", field: "warehouse_id", sortable: false },
+  { key: "product_id", label: "Product", field: "product_id", sortable: false },
   { key: "type", label: "Type", field: "type" },
   { key: "qty", label: "Qty", field: "qty" },
   { key: "balance_after", label: "Balance", field: "balance_after" },
@@ -37,6 +39,26 @@ const TYPE_TONE: Record<string, string> = {
 };
 
 function renderMovementCell(column: TableColumn, row: TableRow, value: unknown) {
+  const movement = row as Movement;
+  if (column.key === "warehouse_id") {
+    return movement.warehouse ? (
+      <span className="block min-w-36">
+        <span className="block font-medium text-slate-900">{movement.warehouse.name}</span>
+        <span className="block text-xs text-slate-500">{movement.warehouse.code}</span>
+      </span>
+    ) : <span className="font-mono text-xs text-slate-500">{movement.warehouse_id}</span>;
+  }
+  if (column.key === "product_id") {
+    return movement.product ? (
+      <span className="block min-w-40">
+        <span className="block font-medium text-slate-900">{movement.product.name}</span>
+        <span className="block text-xs text-slate-500">
+          {movement.product.sku}
+          {movement.variant ? ` · ${movement.variant.name} (${movement.variant.sku})` : ""}
+        </span>
+      </span>
+    ) : <span className="font-mono text-xs text-slate-500">{movement.product_id}</span>;
+  }
   if (column.key === "type") {
     const tone = TYPE_TONE[String(value)] ?? "bg-slate-100 text-slate-600 ring-slate-200";
     return (
